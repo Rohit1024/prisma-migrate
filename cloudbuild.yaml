@@ -1,0 +1,51 @@
+steps:
+  # Step 1: Install Node.js dependencies (including Prisma CLI)
+  - name: 'gcr.io/cloud-builders/npm'
+    args: ['install']
+    id: 'InstallDependencies'
+
+  # Step 2: Generate Prisma Client and Run Migrations in one step
+  - name: 'gcr.io/cloud-builders/npm'
+    id: 'PrismaOperations'
+    entrypoint: 'bash'
+    args:
+      - '-c'
+      - |
+        # Construct the DATABASE_URL using secrets and environment variables/substitutions
+        export DATABASE_URL="${_DB_PROVIDER}://${_DB_USER}:$$DB_PASSWORD@${_CLOUD_SQL_PRIVATE_IP}:${_DB_PORT}/${_DB_NAME}?schema=${_DB_SCHEMA:-public}"
+
+        # Verify connection string format (optional, for debugging)
+        echo "Using DATABASE_URL (password hidden): ${_DB_PROVIDER}://${_DB_USER}:***@${_CLOUD_SQL_PRIVATE_IP}:${_DB_PORT}/${_DB_NAME}?schema=${_DB_SCHEMA:-public}"
+        
+        # Generate Prisma Client
+        npx prisma generate
+        
+        # Create migrations if they don't exist
+        npx prisma migrate dev --name initial-migration --create-only
+        
+        # Apply migrations
+        npx prisma migrate deploy
+        
+        echo "Prisma operations completed successfully."
+    secretEnv: ['DB_PASSWORD']
+    waitFor: ['InstallDependencies']
+
+availableSecrets:
+  secretManager:
+    - versionName: projects/${PROJECT_ID}/secrets/postgres-password/versions/2
+      env: 'DB_PASSWORD' 
+
+# Specify the Private Worker Pool
+options:
+  pool:
+    name: 'projects/${PROJECT_ID}/locations/$_REGION/workerPools/${_WORKER_POOL}'
+
+# Define substitutions
+substitutions:
+  _DB_PROVIDER: postgresql
+  _DB_USER: postgres
+  _DB_NAME: prisma-studio
+  _DB_PORT: "5432"
+  _REGION: us-central1
+  _CLOUD_SQL_PRIVATE_IP: 10.24.34.3
+  _WORKER_POOL: just-pool
